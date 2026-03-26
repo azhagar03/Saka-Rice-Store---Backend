@@ -13,6 +13,10 @@ app.use('/api/rice', require('./routes/rice'));
 app.use('/api/sales', require('./routes/sales'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 
+app.use(cors({
+  origin: '*', // for now (later restrict)
+}));
+
 // MongoDB Connection
 const MONGO_URI = process.env.MONGO_URI;
 
