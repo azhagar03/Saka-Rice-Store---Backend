@@ -1,0 +1,14 @@
+const mongoose = require('mongoose');
+
+const CustomerSchema = new mongoose.Schema({
+  name:    { type: String, required: true, trim: true },
+  phone:   { type: String, default: '', trim: true },
+  address: { type: String, default: '', trim: true },
+  notes:   { type: String, default: '' },
+}, { timestamps: true });
+
+// Text index — accepts both English and Tamil input in same field
+CustomerSchema.index({ name: 'text', address: 'text', city: 'text' });
+CustomerSchema.index({ phone: 1 });
+
+module.exports = mongoose.model('Customer', CustomerSchema);

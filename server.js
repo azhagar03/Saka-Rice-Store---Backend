@@ -12,6 +12,7 @@ app.use(express.json());
 app.use('/api/rice', require('./routes/rice'));
 app.use('/api/sales', require('./routes/sales'));
 app.use('/api/dashboard', require('./routes/dashboard'));
+app.use('/api/customers', require('./routes/customers'));
 
 app.use(cors({
   origin: '*', 

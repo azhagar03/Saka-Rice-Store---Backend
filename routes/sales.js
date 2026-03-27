@@ -56,11 +56,13 @@ router.get('/', async (req, res) => {
     const query = buildPeriodQuery(period, startDate, endDate);
     if (search) {
       query.$or = [
-        { invoiceNumber:    { $regex: search, $options: 'i' } },
-        { customerName:     { $regex: search, $options: 'i' } },
-        { customerPhone:    { $regex: search, $options: 'i' } },
-        { customerAddress:  { $regex: search, $options: 'i' } },  // ← address/city search
-        { customerCity:     { $regex: search, $options: 'i' } },
+        { invoiceNumber:        { $regex: search, $options: 'i' } },
+        { customerName:         { $regex: search, $options: 'i' } },
+        { customerNameTamil:    { $regex: search, $options: 'i' } },
+        { customerPhone:        { $regex: search, $options: 'i' } },
+        { customerAddress:      { $regex: search, $options: 'i' } },
+        { customerAddressTamil: { $regex: search, $options: 'i' } },
+        { customerCity:         { $regex: search, $options: 'i' } },
       ];
     }
     const total = await Sale.countDocuments(query);
