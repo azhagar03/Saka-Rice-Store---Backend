@@ -14,7 +14,8 @@ app.use('/api/sales', require('./routes/sales'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 
 app.use(cors({
-  origin: '*', // for now (later restrict)
+  origin: '*', 
+  methods: ['GET', 'POST', 'PUT', 'DELETE']// for now (later restrict)
 }));
 
 // MongoDB Connection
