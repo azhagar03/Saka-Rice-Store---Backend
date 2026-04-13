@@ -5,7 +5,6 @@ const Sale     = require('../models/Sale');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helper: build a pending map  { phone → balance, 'name:xxx' → balance }
-// from all Sales records.
 // ─────────────────────────────────────────────────────────────────────────────
 async function buildSalesPendingMap() {
   const pipeline = [
@@ -14,7 +13,6 @@ async function buildSalesPendingMap() {
         _id: { phone: '$customerPhone', name: '$customerName' },
         totalAmount: { $sum: '$totalAmount' },
         amountPaid:  { $sum: { $ifNull: ['$amountPaid', 0] } },
-        // previousPending stored on each sale at creation time
         prevPending: { $sum: { $ifNull: ['$previousPending', 0] } },
       }
     }
@@ -23,9 +21,6 @@ async function buildSalesPendingMap() {
 
   const map = {};
   for (const g of groups) {
-    // Balance = totalAmount - amountPaid
-    // (previousPending was already folded into amountPaid logic on the frontend,
-    //  so we do NOT add it again here — we just track what was actually unpaid)
     const bal = Math.max(0, (g.totalAmount || 0) - (g.amountPaid || 0));
     if (g._id.phone) {
       map[g._id.phone] = (map[g._id.phone] || 0) + bal;
@@ -69,9 +64,6 @@ router.get('/', async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /pending/summary
-// Returns every customer with their effective pending amount:
-//   effectivePending = salesPending + manualPendingAdjustment
-// Used by the Billing page dropdown.
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/pending/summary', async (req, res) => {
   try {
@@ -79,24 +71,24 @@ router.get('/pending/summary', async (req, res) => {
     const salesMap   = await buildSalesPendingMap();
 
     const result = customers.map(c => {
-      // Raw pending from sales
       const salesPending = c.phone
         ? (salesMap[c.phone] || 0)
         : (salesMap[`name:${c.name.toLowerCase().trim()}`] || 0);
 
-      // Add any manual adjustment (can be negative to reduce)
-      const adjustment     = c.manualPendingAdjustment || 0;
+      const adjustment       = c.manualPendingAdjustment || 0;
       const effectivePending = Math.max(0, salesPending + adjustment);
 
       return {
-        _id:                    c._id,
-        name:                   c.name,
-        phone:                  c.phone,
-        address:                c.address,
+        _id:                     c._id,
+        name:                    c.name,
+        phone:                   c.phone,
+        address:                 c.address,
         manualPendingAdjustment: adjustment,
-        manualPendingNote:      c.manualPendingNote || '',
+        manualPendingNote:       c.manualPendingNote || '',
+        chipbam:                 c.chipbam     || '',
+        chipbamDate:             c.chipbamDate || null,
         salesPending,
-        pendingAmount:          effectivePending,   // ← what the billing dropdown shows
+        pendingAmount:           effectivePending,
       };
     });
 
@@ -107,7 +99,7 @@ router.get('/pending/summary', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /:id  — single customer with full sales history and pending breakdown
+// GET /:id  — single customer
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/:id', async (req, res) => {
   try {
@@ -134,7 +126,7 @@ router.get('/:id', async (req, res) => {
         amountPaid,
         salesPending,
         adjustment,
-        pendingAmount,          // effective total pending
+        pendingAmount,
       }
     });
   } catch (err) {
@@ -147,17 +139,25 @@ router.get('/:id', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.post('/', async (req, res) => {
   try {
-    const { name, phone, address, notes, manualPendingAdjustment, manualPendingNote } = req.body;
+    const {
+      name, phone, address, notes,
+      manualPendingAdjustment, manualPendingNote,
+      chipbam, chipbamDate,
+    } = req.body;
+
     if (!name || !name.trim())
       return res.status(400).json({ success: false, message: 'Customer name is required' });
 
     const customer = new Customer({
       name:                    name.trim(),
-      phone:                   phone || '',
+      phone:                   phone   || '',
       address:                 address || '',
-      notes:                   notes || '',
+      notes:                   notes   || '',
       manualPendingAdjustment: Number(manualPendingAdjustment) || 0,
       manualPendingNote:       manualPendingNote || '',
+      chipbam:                 chipbam    || '',
+      // If admin entered a சிப்பம் value, store today's date (or provided date)
+      chipbamDate:             chipbam ? (chipbamDate ? new Date(chipbamDate) : new Date()) : null,
     });
     const saved = await customer.save();
     res.status(201).json({ success: true, data: saved, message: 'Customer added successfully' });
@@ -167,14 +167,36 @@ router.post('/', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PUT /:id  — update customer (including manual balance adjustment)
+// PUT /:id  — update customer
 // ─────────────────────────────────────────────────────────────────────────────
 router.put('/:id', async (req, res) => {
   try {
     const {
       name, phone, address, notes,
       manualPendingAdjustment, manualPendingNote,
+      chipbam, chipbamDate,
     } = req.body;
+
+    // Fetch existing to detect if சிப்பம் changed
+    const existing = await Customer.findById(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, message: 'Customer not found' });
+
+    const newChipbam = chipbam || '';
+    // Determine the correct chipbamDate:
+    //  - If value is blank → clear date
+    //  - If value changed   → use provided date (or today as fallback)
+    //  - If value unchanged → use the date the client sent (preserves original)
+    let newChipbamDate;
+    if (!newChipbam) {
+      newChipbamDate = null;
+    } else if (newChipbam !== existing.chipbam) {
+      // Value changed → stamp with provided date or today
+      newChipbamDate = chipbamDate ? new Date(chipbamDate) : new Date();
+    } else {
+      // Value unchanged → trust the date sent by the client (which was
+      // pre-filled from chipbamInfo so it equals the stored date)
+      newChipbamDate = chipbamDate ? new Date(chipbamDate) : existing.chipbamDate;
+    }
 
     const updated = await Customer.findByIdAndUpdate(
       req.params.id,
@@ -185,19 +207,18 @@ router.put('/:id', async (req, res) => {
         notes,
         manualPendingAdjustment: Number(manualPendingAdjustment) || 0,
         manualPendingNote:       manualPendingNote || '',
+        chipbam:                 newChipbam,
+        chipbamDate:             newChipbamDate,
       },
       { new: true, runValidators: true }
     );
-    if (!updated) return res.status(404).json({ success: false, message: 'Customer not found' });
 
-    // Return updated customer with effective pending so the frontend
-    // can immediately refresh the pending display.
     const salesMap     = await buildSalesPendingMap();
     const salesPending = updated.phone
       ? (salesMap[updated.phone] || 0)
       : (salesMap[`name:${updated.name.toLowerCase().trim()}`] || 0);
-    const adjustment     = updated.manualPendingAdjustment || 0;
-    const pendingAmount  = Math.max(0, salesPending + adjustment);
+    const adjustment    = updated.manualPendingAdjustment || 0;
+    const pendingAmount = Math.max(0, salesPending + adjustment);
 
     res.json({
       success: true,

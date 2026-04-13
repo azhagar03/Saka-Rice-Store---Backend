@@ -7,10 +7,13 @@ const CustomerSchema = new mongoose.Schema({
   notes:   { type: String, default: '' },
 
   // ── Manual balance override ───────────────────────────────────────────────
-  // Admin can set an opening/adjusted balance that adds to the
-  // auto-calculated pending from sales.  Can be negative to credit.
   manualPendingAdjustment: { type: Number, default: 0 },
-  manualPendingNote:       { type: String, default: '' }, // reason / label
+  manualPendingNote:       { type: String, default: '' },
+
+  // ── சிப்பம் (bag/sack) tracking ──────────────────────────────────────────
+  // Stores the latest சிப்பம் value entered by admin and the date it was recorded
+  chipbam:     { type: String, default: '' },   // e.g. "5 சிப்பம்" or any label
+  chipbamDate: { type: Date,   default: null },  // date admin entered/updated it
 
 }, { timestamps: true });
 
